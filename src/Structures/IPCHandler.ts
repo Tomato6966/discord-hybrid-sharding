@@ -92,6 +92,10 @@ export class ClusterHandler {
             this.cluster.manager.heartbeat?.ack(this.cluster.id, message.date);
             return;
         }
+        if (message._type === messageType.AUTO_RESHARDER_DATA) {
+            this.cluster.manager.autoresharder?.data(this.cluster.id, message.data);
+            return;
+        }
         if (message._type === messageType.CUSTOM_REPLY) {
             this.cluster.manager.promise.resolve(message as ResolveMessage);
             return;
@@ -100,10 +104,10 @@ export class ClusterHandler {
     }
 }
 
-export class ClusterClientHandler {
-    client: ClusterClient;
+export class ClusterClientHandler<DiscordClient> {
+    client: ClusterClient<DiscordClient>;
     ipc: ChildClient | WorkerClient | null;
-    constructor(client: ClusterClient, ipc: ChildClient | WorkerClient | null) {
+    constructor(client: ClusterClient<DiscordClient>, ipc: ChildClient | WorkerClient | null) {
         this.client = client;
         this.ipc = ipc;
     }

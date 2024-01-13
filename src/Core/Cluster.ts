@@ -1,16 +1,14 @@
-import { ClusterManager } from './ClusterManager';
+import { Serializable } from "child_process";
+import EventEmitter from "events";
+import path from "path";
 
-import EventEmitter from 'events';
-import path from 'path';
-import { delayFor, generateNonce } from '../Util/Util';
-
-import { ClusterEvents, ClusterKillOptions, messageType } from '../types/shared';
-import { IPCMessage, BaseMessage, RawMessage } from '../Structures/IPCMessage.js';
-import { ClusterHandler } from '../Structures/IPCHandler.js';
-
-import { Worker } from '../Structures/Worker.js';
-import { Child } from '../Structures/Child.js';
-import { Serializable } from 'child_process';
+import { Child } from "../Structures/Child.js";
+import { ClusterHandler } from "../Structures/IPCHandler.js";
+import { BaseMessage, IPCMessage, RawMessage } from "../Structures/IPCMessage.js";
+import { Worker } from "../Structures/Worker.js";
+import { ClusterEvents, ClusterKillOptions, messageType } from "../types/shared";
+import { delayFor, generateNonce } from "../Util/Util";
+import { ClusterManager } from "./ClusterManager";
 
 /**
  * A self-contained cluster created by the {@link ClusterManager}. Each one has a {@link Child} that contains
@@ -151,7 +149,8 @@ export class Cluster extends EventEmitter {
             ...this.manager.clusterOptions,
             execArgv: this.execArgv,
             env: this.env,
-            args: this.args,
+            /** Construct args with hooks, to provide parameters with in the context of a cluster */
+            args: this.manager.hooks.constructClusterArgs(this, this.args),
             clusterData: { ...this.env, ...this.manager.clusterData },
         });
         this.messageHandler = new ClusterHandler(this.manager, this, this.thread);
@@ -209,6 +208,9 @@ export class Cluster extends EventEmitter {
      */
     public kill(options: ClusterKillOptions) {
         this.thread?.kill();
+        if (this.thread) {
+            this.thread = null;
+        }
         this.manager.heartbeat?.clusters.get(this.id)?.stop();
         this.restarts.cleanup();
         this.manager._debug('[KILL] Cluster killed with reason: ' + (options?.reason || 'not given'), this.id);

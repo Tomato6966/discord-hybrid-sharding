@@ -1,12 +1,13 @@
 import { ChildProcess, Serializable } from 'child_process';
+import { Client } from 'discord.js';
 import { Worker } from 'worker_threads';
+
 import { Cluster } from '../Core/Cluster';
 import { ClusterClient } from '../Core/ClusterClient';
 import { ClusterManager } from '../Core/ClusterManager';
 import { ChildProcessOptions } from '../Structures/Child';
-import { BaseMessage } from '../Structures/IPCMessage';
+import { BaseMessage, IPCMessage } from '../Structures/IPCMessage';
 import { WorkerThreadOptions } from '../Structures/Worker';
-import { Client } from 'discord.js';
 
 export const Events = {
     ERROR: 'warn',
@@ -47,6 +48,7 @@ export enum messageType {
     'CLIENT_MANAGER_EVAL_RESPONSE',
     'MANAGER_BROADCAST_REQUEST',
     'MANAGER_BROADCAST_RESPONSE',
+    'CLIENT_AUTORESHARDER_SENDDATA',
 }
 
 export interface evalOptions<T = object> {
@@ -146,22 +148,20 @@ export interface ClusterManagerEvents {
     clusterCreate: [cluster: Cluster];
     clusterReady: [cluster: Cluster];
     debug: [debugMessage: string];
+    clientRequest: [message: IPCMessage];
 }
 
 export interface ClusterEvents {
     message: [message: BaseMessage | Serializable];
-    clientRequest: [message: BaseMessage | Serializable];
     death: [cluster: Cluster, thread: ChildProcess | Worker | undefined | null];
     error: [error: Error];
     spawn: [thread: ChildProcess | Worker | undefined | null];
 }
 
-export interface ClusterClientEvents {
+export interface ClusterClientEvents<DiscordClient> {
     message: [message: BaseMessage | Serializable];
-    ready: [clusterClient: ClusterClient];
+    ready: [clusterClient: ClusterClient<DiscordClient>];
 }
 
-// @ts-expect-error
-export interface DjsClient extends Client {
-    _eval: (_: string) => unknown;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface DjsDiscordClient extends Client {}

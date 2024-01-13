@@ -1,29 +1,19 @@
-import { IPCMessage, BaseMessage, RawMessage } from '../Structures/IPCMessage';
-import {
-    Awaitable,
-    ClusterClientEvents,
-    DjsClient,
-    evalOptions,
-    Events,
-    messageType,
-    Serialized,
-} from '../types/shared';
+import { Serializable } from 'child_process';
+import EventEmitter from 'events';
 
 import { ClusterManager as Manager } from '../Core/ClusterManager';
-
-import { getInfo } from '../Structures/Data';
-
-import { WorkerClient } from '../Structures/Worker';
 import { ChildClient } from '../Structures/Child';
+import { getInfo } from '../Structures/Data';
 import { ClusterClientHandler } from '../Structures/IPCHandler';
+import { BaseMessage, IPCMessage, RawMessage } from '../Structures/IPCMessage';
 import { PromiseHandler } from '../Structures/PromiseHandler';
-
-import EventEmitter from 'events';
-import { Serializable } from 'child_process';
+import { WorkerClient } from '../Structures/Worker';
+import { Awaitable, ClusterClientEvents, evalOptions, Events, messageType, Serialized } from '../types/shared';
 import { generateNonce } from '../Util/Util';
+
 ///communicates between the master workers and the process
-export class ClusterClient extends EventEmitter {
-    client: DjsClient;
+export class ClusterClient<DiscordClient> extends EventEmitter {
+    client: DiscordClient;
     mode: 'process' | 'worker';
     queue: { mode: 'auto' | string | undefined };
     maintenance: string | undefined | Boolean;
@@ -31,7 +21,7 @@ export class ClusterClient extends EventEmitter {
     process: ChildClient | WorkerClient | null;
     messageHandler: any;
     promise: PromiseHandler;
-    constructor(client: DjsClient) {
+    constructor(client: DiscordClient) {
         super();
         /**
          * Client for the Cluster
@@ -68,11 +58,13 @@ export class ClusterClient extends EventEmitter {
         if (mode === 'process') this.process = new ChildClient();
         else if (mode === 'worker') this.process = new WorkerClient();
 
-        this.messageHandler = new ClusterClientHandler(this, this.process);
+        this.messageHandler = new ClusterClientHandler<DiscordClient>(this, this.process);
 
         this.promise = new PromiseHandler();
 
         this.process?.ipc?.on('message', this._handleMessage.bind(this));
+
+        // @ts-ignore
         client.on?.('ready', () => {
             this.triggerReady();
         });
@@ -87,7 +79,9 @@ export class ClusterClient extends EventEmitter {
      * Array of shard IDs of this client
      */
     public get ids() {
+        // @ts-ignore
         if (!this.client.ws) return this.info.SHARD_LIST;
+        // @ts-ignore
         return this.client.ws.shards;
     }
     /**
@@ -151,23 +145,21 @@ export class ClusterClient extends EventEmitter {
      */
     public broadcastEval(script: string): Promise<any[]>;
     public broadcastEval(script: string, options?: evalOptions): Promise<any>;
-    public broadcastEval<T>(fn: (client: ClusterClient['client']) => Awaitable<T>): Promise<Serialized<T>[]>;
+    public broadcastEval<T>(fn: (client: DiscordClient) => Awaitable<T>): Promise<Serialized<T>[]>;
     public broadcastEval<T>(
-        fn: (client: ClusterClient['client']) => Awaitable<T>,
+        fn: (client: DiscordClient) => Awaitable<T>,
         options?: { cluster?: number; timeout?: number },
     ): Promise<Serialized<T>>;
     public broadcastEval<T, P>(
-        fn: (client: ClusterClient['client'], context: Serialized<P>) => Awaitable<T>,
+        fn: (client: DiscordClient, context: Serialized<P>) => Awaitable<T>,
         options?: evalOptions<P>,
     ): Promise<Serialized<T>[]>;
     public broadcastEval<T, P>(
-        fn: (client: ClusterClient['client'], context: Serialized<P>) => Awaitable<T>,
+        fn: (client: DiscordClient, context: Serialized<P>) => Awaitable<T>,
         options?: evalOptions<P>,
     ): Promise<Serialized<T>>;
     public async broadcastEval<T, P>(
-        script:
-            | string
-            | ((client: ClusterClient['client'], context?: Serialized<P>) => Awaitable<T> | Promise<Serialized<T>>),
+        script: string | ((client: DiscordClient, context?: Serialized<P>) => Awaitable<T> | Promise<Serialized<T>>),
         options?: evalOptions | evalOptions<P>,
     ) {
         if (!script || (typeof script !== 'string' && typeof script !== 'function'))
@@ -208,8 +200,8 @@ export class ClusterClient extends EventEmitter {
      * Requests a respawn of all clusters.
      * @see {@link ClusterManager#respawnAll}
      */
-    public respawnAll({ clusterDelay = 5000, respawnDelay = 7000, timeout = 30000 } = {}) {
-        return this.send({ _type: messageType.CLIENT_RESPAWN_ALL, options: { clusterDelay, respawnDelay, timeout } });
+    public respawnAll(options: { clusterDelay?: number; respawnDelay?: number; timeout?: number } = {}) {
+        return this.send({ _type: messageType.CLIENT_RESPAWN_ALL, options });
     }
 
     /**
@@ -232,12 +224,16 @@ export class ClusterClient extends EventEmitter {
     }
 
     public async _eval(script: string) {
+        // @ts-ignore
         if (this.client._eval) {
+            // @ts-ignore
             return await this.client._eval(script);
         }
+        // @ts-ignore
         this.client._eval = function (_: string) {
             return eval(_);
         }.bind(this.client);
+        // @ts-ignore
         return await this.client._eval(script);
     }
 
@@ -254,6 +250,7 @@ export class ClusterClient extends EventEmitter {
              * @event Client#error
              * @param {Error} error The error encountered
              */
+            // @ts-ignore
             this.client.emit?.(Events.ERROR, error);
         });
     }
@@ -266,7 +263,8 @@ export class ClusterClient extends EventEmitter {
     }
 
     public triggerClusterReady() {
-        return this.emit('ready', this);
+        this.emit('ready', this);
+        return true;
     }
 
     /**
@@ -301,34 +299,43 @@ export class ClusterClient extends EventEmitter {
 }
 
 // Credits for EventEmitter typings: https://github.com/discordjs/discord.js/blob/main/packages/rest/src/lib/RequestManager.ts#L159 | See attached license
-export interface ClusterClient {
-    emit: (<K extends keyof ClusterClientEvents>(event: K, ...args: ClusterClientEvents[K]) => boolean) &
-        (<S extends string | symbol>(event: Exclude<S, keyof ClusterClientEvents>, ...args: any[]) => boolean);
-
-    off: (<K extends keyof ClusterClientEvents>(
+export interface ClusterClient<DiscordClient> {
+    emit: (<K extends keyof ClusterClientEvents<DiscordClient>>(
         event: K,
-        listener: (...args: ClusterClientEvents[K]) => void,
+        ...args: ClusterClientEvents<DiscordClient>[K]
+    ) => boolean) &
+        (<S extends string | symbol>(
+            event: Exclude<S, keyof ClusterClientEvents<DiscordClient>>,
+            ...args: any[]
+        ) => boolean);
+
+    off: (<K extends keyof ClusterClientEvents<DiscordClient>>(
+        event: K,
+        listener: (...args: ClusterClientEvents<DiscordClient>[K]) => void,
     ) => this) &
         (<S extends string | symbol>(
-            event: Exclude<S, keyof ClusterClientEvents>,
+            event: Exclude<S, keyof ClusterClientEvents<DiscordClient>>,
             listener: (...args: any[]) => void,
         ) => this);
 
-    on: (<K extends keyof ClusterClientEvents>(event: K, listener: (...args: ClusterClientEvents[K]) => void) => this) &
-        (<S extends string | symbol>(
-            event: Exclude<S, keyof ClusterClientEvents>,
-            listener: (...args: any[]) => void,
-        ) => this);
-
-    once: (<K extends keyof ClusterClientEvents>(
+    on: (<K extends keyof ClusterClientEvents<DiscordClient>>(
         event: K,
-        listener: (...args: ClusterClientEvents[K]) => void,
+        listener: (...args: ClusterClientEvents<DiscordClient>[K]) => void,
     ) => this) &
         (<S extends string | symbol>(
-            event: Exclude<S, keyof ClusterClientEvents>,
+            event: Exclude<S, keyof ClusterClientEvents<DiscordClient>>,
             listener: (...args: any[]) => void,
         ) => this);
 
-    removeAllListeners: (<K extends keyof ClusterClientEvents>(event?: K) => this) &
-        (<S extends string | symbol>(event?: Exclude<S, keyof ClusterClientEvents>) => this);
+    once: (<K extends keyof ClusterClientEvents<DiscordClient>>(
+        event: K,
+        listener: (...args: ClusterClientEvents<DiscordClient>[K]) => void,
+    ) => this) &
+        (<S extends string | symbol>(
+            event: Exclude<S, keyof ClusterClientEvents<DiscordClient>>,
+            listener: (...args: any[]) => void,
+        ) => this);
+
+    removeAllListeners: (<K extends keyof ClusterClientEvents<DiscordClient>>(event?: K) => this) &
+        (<S extends string | symbol>(event?: Exclude<S, keyof ClusterClientEvents<DiscordClient>>) => this);
 }
